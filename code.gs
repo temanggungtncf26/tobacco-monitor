@@ -69,7 +69,7 @@ function setupDatabase() {
     { name: 'VisitRealizations', headers: ['id', 'plan_id', 'user_id', 'field_force', 'plan_date', 'periode_minggu', 'periode_bulan', 'farmer_id', 'farmer_name', 'klaster_gunung', 'klaster_sawah', 'klaster_tegal', 'klaster_lain', 'total_petani', 'real_date', 'lokasi', 'foto', 'resume', 'created_at'] },
     { name: 'Users', headers: ['user_id', 'password', 'fullname', 'role'] },
     { name: 'ActivityPhases', headers: ['id', 'name', 'created_at'] },
-    { name: 'MonPertanaman', headers: ['id', 'id_trader', 'id_petani', 'id_field', 'field_force', 'pic', 'nama_koordinator', 'nama_petani', 'nama_alias', 'id_lahan', 'klaster_petani', 'nama_lahan', 'desa', 'kecamatan', 'kabupaten', 'klaster_lahan', 'point_x', 'point_y', 'luas', 'tanggal_tanam', 'rafraksi', 'model_tanam', 'jarak_tanam', 'est_populasi', 'varietas_dominan', 'persen_dominan', 'varietas_sekunder', 'persen_sekunder', 'foto_lahan', 'created_at'] },,
+    { name: 'MonPertanaman', headers: ['id', 'id_trader', 'id_petani', 'id_field', 'field_force', 'pic', 'nama_koordinator', 'nama_petani', 'nama_alias', 'id_lahan', 'klaster_petani', 'nama_lahan', 'desa', 'kecamatan', 'kabupaten', 'klaster_lahan', 'point_x', 'point_y', 'luas', 'tanggal_tanam', 'rafraksi', 'model_tanam', 'jarak_tanam', 'est_populasi', 'varietas_dominan', 'persen_dominan', 'varietas_sekunder', 'persen_sekunder', 'foto_lahan', 'created_at'] },
     { name: 'AuditLog', headers: ['timestamp', 'username', 'action', 'detail'] }
   ];
   
