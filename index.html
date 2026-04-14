@@ -1020,46 +1020,191 @@
     
     let rawDashboardData = []; let rawDashboardFarmers = 0;
     
+    // ============================================================
+    // AUTH — Session persisten via sessionStorage
+    // Token disimpan di sessionStorage (bertahan selama tab terbuka,
+    // otomatis terhapus saat tab/browser ditutup — lebih aman dari localStorage)
+    // ============================================================
     const Auth = (function() {
-        let _verified = false; let _token = null; let _user = null; let _verifyKey = null;
+        var SESSION_KEY = 'tm_session';
+        var _verified = false; var _token = null; var _user = null; var _verifyKey = null;
+
+        function _persist() {
+            try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: _token, user: _user })); } catch(e) {}
+        }
+        function _restore() {
+            try {
+                var raw = sessionStorage.getItem(SESSION_KEY);
+                if (!raw) return false;
+                var data = JSON.parse(raw);
+                if (data && data.token && data.user) { _token = data.token; _user = data.user; _verified = true; return true; }
+            } catch(e) {}
+            return false;
+        }
+
         return {
             login: function(token, user, key) {
                 if (key !== _verifyKey) return false;
                 _token = token; _user = user; _verified = true;
+                _persist();
                 return true;
             },
+            restoreSession: function() { return _restore(); },
             isVerified: function() { return _verified === true && _token !== null && _user !== null; },
             getToken: function() { return _token; },
             getUser: function() { return _user ? JSON.parse(JSON.stringify(_user)) : null; },
             getRole: function() { return _user ? _user.role : null; },
-            clear: function() { _verified = false; _token = null; _user = null; },
-            init: function() { _verifyKey = 'vk_' + Date.now() + '_' + Math.random().toString(36).substring(2); return _verifyKey; }
+            clear: function() {
+                _verified = false; _token = null; _user = null;
+                try { sessionStorage.removeItem(SESSION_KEY); } catch(e) {}
+            },
+            init: function() {
+                _verifyKey = 'vk_' + Date.now() + '_' + Math.random().toString(36).substring(2);
+                return _verifyKey;
+            }
         };
     })();
 
     // ============================================================
-    // PWA MODE: gasRun menggunakan fetch() ke GAS doPost endpoint
+    // OFFLINE DB — IndexedDB wrapper untuk cache data dari GAS
+    // Fungsi yang di-cache: getFarmers, getLands, getPlans,
+    // getRealizations, getPertanamans, getPhases, getUsers
+    // ============================================================
+    const OfflineDB = (function() {
+        var DB_NAME    = 'TobaccoMonitorDB';
+        var DB_VERSION = 1;
+        var STORE_NAME = 'api_cache';
+        var _db = null;
+
+        // READ-ONLY: fungsi yang boleh di-serve dari cache saat offline
+        var CACHEABLE = ['getFarmers','getLands','getPlans','getRealizations',
+                         'getPertanamans','getPhases','getUsers','getDashboardDataRaw'];
+
+        function _open() {
+            return new Promise(function(resolve, reject) {
+                if (_db) { resolve(_db); return; }
+                var req = indexedDB.open(DB_NAME, DB_VERSION);
+                req.onupgradeneeded = function(e) {
+                    var db = e.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'key' });
+                    }
+                };
+                req.onsuccess  = function(e) { _db = e.target.result; resolve(_db); };
+                req.onerror    = function(e) { reject(e.target.error); };
+            });
+        }
+
+        function _put(key, data) {
+            return _open().then(function(db) {
+                return new Promise(function(resolve, reject) {
+                    var tx    = db.transaction(STORE_NAME, 'readwrite');
+                    var store = tx.objectStore(STORE_NAME);
+                    store.put({ key: key, data: data, ts: Date.now() });
+                    tx.oncomplete = resolve;
+                    tx.onerror    = function(e) { reject(e.target.error); };
+                });
+            });
+        }
+
+        function _get(key) {
+            return _open().then(function(db) {
+                return new Promise(function(resolve, reject) {
+                    var tx    = db.transaction(STORE_NAME, 'readonly');
+                    var store = tx.objectStore(STORE_NAME);
+                    var req   = store.get(key);
+                    req.onsuccess = function(e) { resolve(e.target.result ? e.target.result.data : null); };
+                    req.onerror   = function(e) { reject(e.target.error); };
+                });
+            });
+        }
+
+        function _cacheKey(funcName, args) {
+            // Gunakan funcName + token username sebagai key agar data per-user
+            var user = null;
+            try { var s = sessionStorage.getItem('tm_session'); if(s) user = JSON.parse(s).user.username; } catch(e) {}
+            return funcName + '_' + (user || 'anon');
+        }
+
+        return {
+            isCacheable: function(funcName) { return CACHEABLE.indexOf(funcName) !== -1; },
+            save: function(funcName, args, data) {
+                return _put(_cacheKey(funcName, args), data).catch(function(e) { console.warn('[OfflineDB] save failed:', e); });
+            },
+            load: function(funcName, args) {
+                return _get(_cacheKey(funcName, args)).catch(function(e) { console.warn('[OfflineDB] load failed:', e); return null; });
+            },
+            clearAll: function() {
+                return _open().then(function(db) {
+                    var tx = db.transaction(STORE_NAME, 'readwrite');
+                    tx.objectStore(STORE_NAME).clear();
+                }).catch(function(){});
+            }
+        };
+    })();
+
+    // ============================================================
+    // GAS API — fetch ke doPost, dengan fallback IndexedDB offline
     // ============================================================
     const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwU5c4NrCDne4WgAfQj98ykaLaMiU6JqLct3v0yU4ASBBE_4Z4x7hLZ3MxrywusSNO8AQ/exec';
 
     function gasRun(funcName) {
-        const args = Array.prototype.slice.call(arguments, 1);
-        return fetch(GAS_API_URL, {
+        var args = Array.prototype.slice.call(arguments, 1);
+        var networkCall = fetch(GAS_API_URL, {
             method: 'POST',
-            // Gunakan text/plain agar tidak memicu CORS preflight di GAS
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ action: funcName, args: args })
-        })
-        .then(function(response) {
+        }).then(function(response) {
             if (!response.ok) throw new Error('Network error: ' + response.status);
             return response.json();
-        })
-        .catch(function(err) {
+        }).then(function(result) {
+            // Berhasil online → simpan ke IndexedDB untuk dipakai saat offline
+            if (result && result.success && OfflineDB.isCacheable(funcName)) {
+                OfflineDB.save(funcName, args, result);
+            }
+            return result;
+        });
+
+        // Jika fungsi ini bisa di-cache (read-only), tambahkan offline fallback
+        if (OfflineDB.isCacheable(funcName)) {
+            return networkCall.catch(function(err) {
+                console.warn('[gasRun] Network failed for ' + funcName + ', trying offline cache...');
+                return OfflineDB.load(funcName, args).then(function(cached) {
+                    if (cached) {
+                        // Tampilkan toast bahwa data dari cache
+                        _showOfflineToast();
+                        return cached;
+                    }
+                    // Tidak ada cache sama sekali
+                    return { success: false, message: 'Tidak ada koneksi. Cache lokal juga belum tersedia — harap buka halaman ini saat online terlebih dahulu.', offline: true };
+                });
+            });
+        }
+
+        // Fungsi write (save/delete) — tidak ada fallback offline, lempar error
+        return networkCall.catch(function(err) {
             console.error('[gasRun] Error calling ' + funcName + ':', err);
-            // Kembalikan error agar bisa ditangkap oleh .catch() di pemanggil
             throw err;
         });
     }
+
+    // Toast kecil "mode offline" agar user tahu data dari cache
+    var _offlineToastShown = false;
+    function _showOfflineToast() {
+        if (_offlineToastShown) return;
+        _offlineToastShown = true;
+        Swal.fire({ icon: 'info', title: 'Mode Offline', text: 'Menampilkan data terakhir dari cache lokal.', toast: true, position: 'top-end', timer: 4000, showConfirmButton: false });
+        setTimeout(function() { _offlineToastShown = false; }, 10000);
+    }
+
+    // Reset toast flag saat kembali online
+    window.addEventListener('online',  function() {
+        _offlineToastShown = false;
+        Swal.fire({ icon: 'success', title: 'Kembali Online', toast: true, position: 'top-end', timer: 2500, showConfirmButton: false });
+    });
+    window.addEventListener('offline', function() {
+        Swal.fire({ icon: 'warning', title: 'Koneksi Terputus', text: 'Menampilkan data dari cache.', toast: true, position: 'top-end', timer: 3000, showConfirmButton: false });
+    });
 
     window.escapeHTML = function(str) {
         if (!str) return '';
@@ -1125,6 +1270,8 @@
     };
 
     window.handleSessionExpired = function(res) {
+        // Jangan logout jika respons berasal dari cache offline
+        if (res && res.offline) return false;
         if (res && res.sessionExpired) { Auth.clear(); logout(); Swal.fire('Session Expired', 'Silakan login ulang.', 'warning'); return true; }
         return false;
     };
@@ -1132,6 +1279,7 @@
     window.logout = function() {
         if (Auth.getToken()) { gasRun('destroySession', Auth.getToken()).catch(function(){}); }
         Auth.clear();
+        OfflineDB.clearAll();
         dbFarmers = []; dbLands = []; dbPlans = []; dbRealizations = []; dbUsers = []; dbPhases = [];
         isFarmersLoaded = false; isLandsLoaded = false; isPlansLoaded = false; isRealLoaded = false; isUsersLoaded = false; isPhasesLoaded = false;
         activePage = 'dash-utama'; checkLoginState();
@@ -1140,6 +1288,8 @@
     window.checkLoginState = function() {
         const lp = document.getElementById('loginPage'); const ma = document.getElementById('mainApp');
         if (!lp || !ma) return;
+        // Coba restore session jika belum verified (misal setelah refresh)
+        if (!Auth.isVerified()) { Auth.restoreSession(); }
         if (Auth.isVerified()) {
             lp.classList.add('d-none'); ma.classList.remove('d-none');
             const user = Auth.getUser();
@@ -2311,6 +2461,13 @@
     // --- INISIALISASI & FUNGSI LOGIN ---
     document.addEventListener('DOMContentLoaded', function() {
         const _authKey = Auth.init();
+
+        // Coba restore session dari sessionStorage (bertahan selama tab terbuka)
+        // Sehingga refresh halaman saat offline tidak perlu login ulang
+        if (Auth.restoreSession()) {
+            checkLoginState();
+            return; // Sudah login, tidak perlu render halaman login
+        }
         
         window.handleLogin = function() {
             const u = document.getElementById('username').value.trim(); const p = document.getElementById('password').value.trim();
