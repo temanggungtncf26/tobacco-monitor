@@ -1,11 +1,11 @@
 // ============================================================
-// SERVICE WORKER - Tobacco Monitor PWA v2
-// Fokus: Cache UI shell (HTML/CSS/JS statis)
-// Data API di-cache oleh IndexedDB di app (OfflineDB)
+// SERVICE WORKER - Tobacco Monitor PWA v3
+// Tambahan: Background Sync event untuk proses antrian offline
 // ============================================================
 
-const CACHE_VERSION = 'tobacco-monitor-v2';
+const CACHE_VERSION = 'tobacco-monitor-v3';
 const GAS_ORIGIN    = 'script.google.com';
+const GAS_API_URL   = 'https://script.google.com/macros/s/AKfycbwU5c4NrCDne4WgAfQj98ykaLaMiU6JqLct3v0yU4ASBBE_4Z4x7hLZ3MxrywusSNO8AQ/exec';
 
 const PRECACHE_ASSETS = [
   './index.html',
@@ -35,7 +35,7 @@ self.addEventListener('install', function(event) {
   );
 });
 
-// ---- ACTIVATE: hapus cache lama ----
+// ---- ACTIVATE ----
 self.addEventListener('activate', function(event) {
   event.waitUntil(
     caches.keys().then(function(keys) {
@@ -50,14 +50,9 @@ self.addEventListener('activate', function(event) {
 // ---- FETCH ----
 self.addEventListener('fetch', function(event) {
   var url = new URL(event.request.url);
-
-  // 1. API GAS -> langsung ke network, IndexedDB di app yang handle offline
-  if (url.hostname.includes(GAS_ORIGIN)) return;
-
-  // 2. Non-GET -> jangan di-intercept
+  if (url.hostname.includes(GAS_ORIGIN)) return; // Biarkan app handle GAS
   if (event.request.method !== 'GET') return;
 
-  // 3. Navigasi -> index.html dari cache
   if (event.request.mode === 'navigate') {
     event.respondWith(
       caches.match('./index.html').then(function(cached) {
@@ -67,7 +62,6 @@ self.addEventListener('fetch', function(event) {
     return;
   }
 
-  // 4. Aset statis -> Cache First + update di background
   event.respondWith(
     caches.open(CACHE_VERSION).then(function(cache) {
       return cache.match(event.request).then(function(cached) {
@@ -81,7 +75,69 @@ self.addEventListener('fetch', function(event) {
   );
 });
 
-// ---- Message: force update ----
+// ---- BACKGROUND SYNC ----
+// Dipanggil browser otomatis saat koneksi kembali (jika app tidak terbuka)
+self.addEventListener('sync', function(event) {
+  if (event.tag === 'tm-sync-queue') {
+    console.log('[SW] Background sync triggered');
+    event.waitUntil(_processSyncQueueFromSW());
+  }
+});
+
+function _processSyncQueueFromSW() {
+  // Buka IndexedDB langsung dari SW dan proses antrian
+  return new Promise(function(resolve, reject) {
+    var req = indexedDB.open('TobaccoMonitorDB', 2);
+    req.onsuccess = function(e) {
+      var db    = e.target.result;
+      var tx    = db.transaction('sync_queue', 'readonly');
+      var store = tx.objectStore('sync_queue');
+      var getAll = store.getAll();
+
+      getAll.onsuccess = function(ev) {
+        var queue = ev.target.result || [];
+        if (queue.length === 0) { resolve(); return; }
+
+        var chain = Promise.resolve();
+        queue.forEach(function(item) {
+          chain = chain.then(function() {
+            return fetch(GAS_API_URL, {
+              method : 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body   : JSON.stringify({ action: item.funcName, args: item.args })
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(result) {
+              if (result && result.success) {
+                // Hapus dari antrian
+                var delTx = db.transaction('sync_queue', 'readwrite');
+                delTx.objectStore('sync_queue').delete(item.id);
+                console.log('[SW] Sync sukses item #' + item.id);
+              }
+            })
+            .catch(function(err) {
+              console.warn('[SW] Sync gagal item #' + item.id, err);
+            });
+          });
+        });
+
+        chain.then(function() {
+          // Kirim pesan ke semua client agar refresh UI
+          self.clients.matchAll().then(function(clients) {
+            clients.forEach(function(client) {
+              client.postMessage({ type: 'SYNC_COMPLETE' });
+            });
+          });
+          resolve();
+        }).catch(reject);
+      };
+      getAll.onerror = reject;
+    };
+    req.onerror = reject;
+  });
+}
+
+// ---- Message handler ----
 self.addEventListener('message', function(event) {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
