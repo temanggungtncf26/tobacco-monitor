@@ -24,82 +24,13 @@
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 
-    <!-- PWA: Register Service Worker + Capture Install Prompt -->
+    <!-- PWA: Register Service Worker -->
     <script>
-      // Tangkap event beforeinstallprompt SECEPAT MUNGKIN (harus di <head>)
-      // agar tidak terlewat sebelum app selesai load
-      var _pwaInstallPrompt = null;
-
-      window.addEventListener('beforeinstallprompt', function(e) {
-        e.preventDefault();
-        _pwaInstallPrompt = e;
-        console.log('[PWA] Install prompt tersedia');
-
-        // Tampilkan SEMUA elemen install di UI
-        ['btnInstallPWA', 'sidebarInstallWrapper', 'dropInstallPWA'].forEach(function(id) {
-          var el = document.getElementById(id);
-          if (el) el.classList.remove('d-none');
-        });
-      });
-
-      window.addEventListener('appinstalled', function() {
-        console.log('[PWA] App berhasil diinstall');
-        _pwaInstallPrompt = null;
-        // Sembunyikan semua elemen install
-        ['btnInstallPWA', 'sidebarInstallWrapper', 'dropInstallPWA'].forEach(function(id) {
-          var el = document.getElementById(id);
-          if (el) el.classList.add('d-none');
-        });
-      });
-
-      // Fungsi dipanggil dari tombol install di header
-      window.triggerPWAInstall = function() {
-        if (!_pwaInstallPrompt) {
-          // Fallback: tampilkan panduan manual
-          if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
-            alert('Di Safari: Ketuk tombol Share \uD83D\uDCE4 \u2192 "Add to Home Screen"');
-          } else {
-            alert('Buka menu browser (titik tiga) \u2192 "Install app" atau "Add to Home Screen"');
-          }
-          return;
-        }
-        _pwaInstallPrompt.prompt();
-        _pwaInstallPrompt.userChoice.then(function(result) {
-          console.log('[PWA] User choice:', result.outcome);
-          _pwaInstallPrompt = null;
-          var btn = document.getElementById('btnInstallPWA');
-          if (btn) btn.classList.add('d-none');
-        });
-      };
-
-      // Register Service Worker
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
           navigator.serviceWorker.register('service-worker.js')
-            .then(function(reg) {
-              console.log('[SW] Registered:', reg.scope);
-              reg.addEventListener('updatefound', function() {
-                var newSW = reg.installing;
-                newSW.addEventListener('statechange', function() {
-                  if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-                    console.log('[SW] Update tersedia');
-                  }
-                });
-              });
-            })
+            .then(function(reg) { console.log('[SW] Registered:', reg.scope); })
             .catch(function(err) { console.warn('[SW] Registration failed:', err); });
-
-          // Terima pesan dari SW (misal: Background Sync selesai)
-          navigator.serviceWorker.addEventListener('message', function(event) {
-            if (event.data && event.data.type === 'SYNC_COMPLETE') {
-              console.log('[App] Background sync selesai, refresh data...');
-              // Update badge dan refresh halaman aktif
-              if (typeof _updateSyncBadge === 'function') _updateSyncBadge();
-              if (typeof loadPageData === 'function' && typeof activePage !== 'undefined') {
-                loadPageData(activePage);
-              }
-            }
-          });
         });
       }
     </script>
@@ -207,9 +138,9 @@
         </form>
         <div id="previewLoginInfo" class="mt-3 p-2 bg-warning bg-opacity-10 rounded border border-warning border-opacity-20 d-none text-center">
             <small class="text-warning-emphasis fw-bold d-block">Demo Akses:</small>
-            <small class="text-warning-emphasis">Admin: admin / bismillah</small><br>
-            <small class="text-warning-emphasis">Trader: JJ / bismillah</small><br>
-            <small class="text-warning-emphasis">PIC: ROCHMAD JATI K / bismillah</small>
+            <small class="text-warning-emphasis">Admin: admin / Admin@2026</small><br>
+            <small class="text-warning-emphasis">Trader: JJ / Admin@2026</small><br>
+            <small class="text-warning-emphasis">PIC: ROCHMAD JATI K / Admin@2026</small>
         </div>
     </div>
 </div>
@@ -271,13 +202,6 @@
             <a onclick="logout()" class="nav-item-custom text-danger">
                 <i class="fa-solid fa-sign-out-alt w-20"></i> Keluar
             </a>
-            <!-- Install PWA di Sidebar -->
-            <div id="sidebarInstallWrapper" class="d-none">
-                <hr class="mx-3 text-black-50">
-                <a onclick="triggerPWAInstall()" class="nav-item-custom" style="color: #800000; font-weight: 600;">
-                    <i class="fa-solid fa-download w-20"></i> Install Aplikasi
-                </a>
-            </div>
         </div>
     </div>
 
@@ -294,21 +218,6 @@
                 <h6 class="mb-0 fw-bold text-primary" id="pageTitle">Dashboard Overview</h6>
             </div>
             <div class="d-flex align-items-center gap-3">
-                <!-- Tombol Install PWA (disembunyikan, muncul saat prompt tersedia) -->
-                <button id="btnInstallPWA" onclick="triggerPWAInstall()"
-                    class="btn btn-sm d-none d-flex align-items-center gap-1 fw-bold text-white"
-                    style="background: linear-gradient(135deg,#800000,#b22222); border:none; border-radius:8px; font-size:0.75rem; padding: 6px 12px; box-shadow: 0 2px 8px rgba(128,0,0,0.3);">
-                    <i class="fa-solid fa-download"></i>
-                    <span class="d-none d-sm-inline">Install App</span>
-                </button>
-                <!-- Badge antrian sinkronisasi offline -->
-                <div id="syncQueueWrap" class="d-none position-relative" title="Data menunggu sinkronisasi ke server">
-                    <button class="btn btn-sm btn-warning fw-bold d-flex align-items-center gap-1" onclick="processSyncQueue()" style="font-size:0.75rem; border-radius:8px;">
-                        <i class="fa-solid fa-rotate fa-spin-pulse"></i>
-                        <span class="d-none d-sm-inline">Pending</span>
-                        <span class="badge bg-danger ms-1" id="syncQueueBadge">0</span>
-                    </button>
-                </div>
                 <div class="text-end d-none d-sm-block">
                     <div class="fw-bold small" id="displayUser">User</div>
                     <div class="badge bg-primary text-white" id="displayRole">Role</div>
@@ -324,7 +233,6 @@
                             <li><a class="dropdown-item py-2 small cursor-pointer" onclick="showPage('phases', this)"><i class="fa-solid fa-list-check w-20 me-2 text-muted"></i> Fase Kegiatan</a></li>
                             <li><hr class="dropdown-divider"></li>
                         </div>
-                        <li id="dropInstallPWA" class="d-none"><a class="dropdown-item py-2 small cursor-pointer fw-bold" onclick="triggerPWAInstall()" style="color:#800000;"><i class="fa-solid fa-download w-20 me-2"></i> Install Aplikasi</a></li>
                         <li><a class="dropdown-item py-2 small text-danger cursor-pointer" onclick="logout()"><i class="fa-solid fa-sign-out-alt w-20 me-2"></i> Keluar Sistem</a></li>
                     </ul>
                 </div>
@@ -1113,20 +1021,20 @@
     let rawDashboardData = []; let rawDashboardFarmers = 0;
     
     // ============================================================
-    // AUTH — Session persisten via sessionStorage
-    // Token disimpan di sessionStorage (bertahan selama tab terbuka,
-    // otomatis terhapus saat tab/browser ditutup — lebih aman dari localStorage)
+    // AUTH — Session persisten via localStorage
+    // Token disimpan di localStorage agar user tetap login
+    // meskipun aplikasi atau browser ditutup sepenuhnya.
     // ============================================================
     const Auth = (function() {
         var SESSION_KEY = 'tm_session';
         var _verified = false; var _token = null; var _user = null; var _verifyKey = null;
 
         function _persist() {
-            try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: _token, user: _user })); } catch(e) {}
+            try { localStorage.setItem(SESSION_KEY, JSON.stringify({ token: _token, user: _user })); } catch(e) {}
         }
         function _restore() {
             try {
-                var raw = sessionStorage.getItem(SESSION_KEY);
+                var raw = localStorage.getItem(SESSION_KEY);
                 if (!raw) return false;
                 var data = JSON.parse(raw);
                 if (data && data.token && data.user) { _token = data.token; _user = data.user; _verified = true; return true; }
@@ -1148,7 +1056,7 @@
             getRole: function() { return _user ? _user.role : null; },
             clear: function() {
                 _verified = false; _token = null; _user = null;
-                try { sessionStorage.removeItem(SESSION_KEY); } catch(e) {}
+                try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
             },
             init: function() {
                 _verifyKey = 'vk_' + Date.now() + '_' + Math.random().toString(36).substring(2);
@@ -1158,29 +1066,19 @@
     })();
 
     // ============================================================
-    // OFFLINE DB — IndexedDB dengan 2 store:
-    //   1. "api_cache"  → cache hasil GET (read)
-    //   2. "sync_queue" → antrian operasi tulis saat offline
+    // OFFLINE DB — IndexedDB wrapper untuk cache data dari GAS
+    // Fungsi yang di-cache: getFarmers, getLands, getPlans,
+    // getRealizations, getPertanamans, getPhases, getUsers
     // ============================================================
     const OfflineDB = (function() {
         var DB_NAME    = 'TobaccoMonitorDB';
-        var DB_VERSION = 2;           // Naik versi karena tambah store baru
-        var CACHE_STORE = 'api_cache';
-        var QUEUE_STORE = 'sync_queue';
+        var DB_VERSION = 1;
+        var STORE_NAME = 'api_cache';
         var _db = null;
 
-        // Fungsi GET yang hasilnya boleh di-cache lokal
-        var CACHEABLE = [
-            'getFarmers','getLands','getPlans','getRealizations',
-            'getPertanamans','getPhases','getUsers','getDashboardDataRaw'
-        ];
-
-        // Fungsi WRITE yang boleh masuk antrian saat offline
-        var QUEUEABLE = [
-            'saveFarmer','saveLand','savePlan','saveRealization',
-            'savePertanaman','saveUser','savePhase',
-            'deletePlan','deleteUser','deletePhase'
-        ];
+        // READ-ONLY: fungsi yang boleh di-serve dari cache saat offline
+        var CACHEABLE = ['getFarmers','getLands','getPlans','getRealizations',
+                         'getPertanamans','getPhases','getUsers','getDashboardDataRaw'];
 
         function _open() {
             return new Promise(function(resolve, reject) {
@@ -1188,12 +1086,8 @@
                 var req = indexedDB.open(DB_NAME, DB_VERSION);
                 req.onupgradeneeded = function(e) {
                     var db = e.target.result;
-                    if (!db.objectStoreNames.contains(CACHE_STORE)) {
-                        db.createObjectStore(CACHE_STORE, { keyPath: 'key' });
-                    }
-                    if (!db.objectStoreNames.contains(QUEUE_STORE)) {
-                        // autoIncrement agar urutan operasi terjaga (FIFO)
-                        db.createObjectStore(QUEUE_STORE, { keyPath: 'id', autoIncrement: true });
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'key' });
                     }
                 };
                 req.onsuccess  = function(e) { _db = e.target.result; resolve(_db); };
@@ -1201,298 +1095,115 @@
             });
         }
 
-        // --- Cache (GET) helpers ---
-        function _cacheKey(funcName) {
-            var user = null;
-            try { var s = sessionStorage.getItem('tm_session'); if(s) user = JSON.parse(s).user.username; } catch(e) {}
-            return funcName + '_' + (user || 'anon');
-        }
-
-        function _cachePut(funcName, data) {
+        function _put(key, data) {
             return _open().then(function(db) {
                 return new Promise(function(resolve, reject) {
-                    var tx = db.transaction(CACHE_STORE, 'readwrite');
-                    tx.objectStore(CACHE_STORE).put({ key: _cacheKey(funcName), data: data, ts: Date.now() });
+                    var tx    = db.transaction(STORE_NAME, 'readwrite');
+                    var store = tx.objectStore(STORE_NAME);
+                    store.put({ key: key, data: data, ts: Date.now() });
                     tx.oncomplete = resolve;
-                    tx.onerror = function(e) { reject(e.target.error); };
-                });
-            }).catch(function(e) { console.warn('[OfflineDB] cachePut failed:', e); });
-        }
-
-        function _cacheGet(funcName) {
-            return _open().then(function(db) {
-                return new Promise(function(resolve, reject) {
-                    var tx  = db.transaction(CACHE_STORE, 'readonly');
-                    var req = tx.objectStore(CACHE_STORE).get(_cacheKey(funcName));
-                    req.onsuccess = function(e) { resolve(e.target.result ? e.target.result.data : null); };
-                    req.onerror   = function(e) { reject(e.target.error); };
-                });
-            }).catch(function(e) { console.warn('[OfflineDB] cacheGet failed:', e); return null; });
-        }
-
-        // --- Sync Queue (WRITE) helpers ---
-        function _queueAdd(funcName, args) {
-            return _open().then(function(db) {
-                return new Promise(function(resolve, reject) {
-                    var tx    = db.transaction(QUEUE_STORE, 'readwrite');
-                    var store = tx.objectStore(QUEUE_STORE);
-                    var req   = store.add({
-                        funcName : funcName,
-                        args     : args,
-                        ts       : Date.now(),
-                        retries  : 0
-                    });
-                    req.onsuccess = function(e) { resolve(e.target.result); }; // returns new id
                     tx.onerror    = function(e) { reject(e.target.error); };
                 });
             });
         }
 
-        function _queueGetAll() {
+        function _get(key) {
             return _open().then(function(db) {
                 return new Promise(function(resolve, reject) {
-                    var tx  = db.transaction(QUEUE_STORE, 'readonly');
-                    var req = tx.objectStore(QUEUE_STORE).getAll();
-                    req.onsuccess = function(e) { resolve(e.target.result || []); };
+                    var tx    = db.transaction(STORE_NAME, 'readonly');
+                    var store = tx.objectStore(STORE_NAME);
+                    var req   = store.get(key);
+                    req.onsuccess = function(e) { resolve(e.target.result ? e.target.result.data : null); };
                     req.onerror   = function(e) { reject(e.target.error); };
                 });
-            }).catch(function() { return []; });
+            });
         }
 
-        function _queueDelete(id) {
-            return _open().then(function(db) {
-                return new Promise(function(resolve, reject) {
-                    var tx = db.transaction(QUEUE_STORE, 'readwrite');
-                    tx.objectStore(QUEUE_STORE).delete(id);
-                    tx.oncomplete = resolve;
-                    tx.onerror    = function(e) { reject(e.target.error); };
-                });
-            }).catch(function(){});
-        }
-
-        function _queueCount() {
-            return _open().then(function(db) {
-                return new Promise(function(resolve) {
-                    var tx  = db.transaction(QUEUE_STORE, 'readonly');
-                    var req = tx.objectStore(QUEUE_STORE).count();
-                    req.onsuccess = function(e) { resolve(e.target.result); };
-                    req.onerror   = function()  { resolve(0); };
-                });
-            }).catch(function() { return 0; });
-        }
-
-        function _clearAll() {
-            return _open().then(function(db) {
-                var tx = db.transaction([CACHE_STORE, QUEUE_STORE], 'readwrite');
-                tx.objectStore(CACHE_STORE).clear();
-                tx.objectStore(QUEUE_STORE).clear();
-            }).catch(function(){});
+        function _cacheKey(funcName, args) {
+            // Gunakan funcName + token username sebagai key agar data per-user
+            var user = null;
+            try { var s = localStorage.getItem('tm_session'); if(s) user = JSON.parse(s).user.username; } catch(e) {}
+            return funcName + '_' + (user || 'anon');
         }
 
         return {
-            isCacheable  : function(fn) { return CACHEABLE.indexOf(fn) !== -1; },
-            isQueueable  : function(fn) { return QUEUEABLE.indexOf(fn) !== -1; },
-            cacheSave    : _cachePut,
-            cacheLoad    : _cacheGet,
-            queueAdd     : _queueAdd,
-            queueGetAll  : _queueGetAll,
-            queueDelete  : _queueDelete,
-            queueCount   : _queueCount,
-            clearAll     : _clearAll
+            isCacheable: function(funcName) { return CACHEABLE.indexOf(funcName) !== -1; },
+            save: function(funcName, args, data) {
+                return _put(_cacheKey(funcName, args), data).catch(function(e) { console.warn('[OfflineDB] save failed:', e); });
+            },
+            load: function(funcName, args) {
+                return _get(_cacheKey(funcName, args)).catch(function(e) { console.warn('[OfflineDB] load failed:', e); return null; });
+            },
+            clearAll: function() {
+                return _open().then(function(db) {
+                    var tx = db.transaction(STORE_NAME, 'readwrite');
+                    tx.objectStore(STORE_NAME).clear();
+                }).catch(function(){});
+            }
         };
     })();
 
     // ============================================================
-    // SYNC ENGINE — Proses antrian saat kembali online
-    // ============================================================
-    var _isSyncing = false;
-
-    function _updateSyncBadge() {
-        OfflineDB.queueCount().then(function(count) {
-            var badge = document.getElementById('syncQueueBadge');
-            var wrap  = document.getElementById('syncQueueWrap');
-            if (!badge || !wrap) return;
-            if (count > 0) {
-                badge.textContent = count;
-                wrap.classList.remove('d-none');
-            } else {
-                wrap.classList.add('d-none');
-            }
-        });
-    }
-
-    function processSyncQueue() {
-        if (_isSyncing || !navigator.onLine) return;
-        _isSyncing = true;
-
-        OfflineDB.queueGetAll().then(function(queue) {
-            if (queue.length === 0) { _isSyncing = false; _updateSyncBadge(); return; }
-
-            console.log('[Sync] Memproses ' + queue.length + ' item antrian...');
-
-            // Tampilkan notif sinkronisasi dimulai
-            Swal.fire({
-                icon: 'info', title: 'Sinkronisasi Data',
-                text: 'Mengirim ' + queue.length + ' data yang tersimpan offline...',
-                toast: true, position: 'top-end', timer: 3000, showConfirmButton: false
-            });
-
-            // Proses FIFO — satu per satu agar urutan terjaga
-            var chain = Promise.resolve();
-            var successCount = 0;
-            var failCount    = 0;
-
-            queue.forEach(function(item) {
-                chain = chain.then(function() {
-                    return fetch(GAS_API_URL, {
-                        method : 'POST',
-                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                        body   : JSON.stringify({ action: item.funcName, args: item.args })
-                    })
-                    .then(function(res) { return res.json(); })
-                    .then(function(result) {
-                        if (result && result.success) {
-                            successCount++;
-                            return OfflineDB.queueDelete(item.id); // Hapus dari antrian
-                        } else {
-                            failCount++;
-                            console.warn('[Sync] Gagal kirim item #' + item.id + ':', result);
-                        }
-                    })
-                    .catch(function(err) {
-                        failCount++;
-                        console.error('[Sync] Error item #' + item.id + ':', err);
-                    });
-                });
-            });
-
-            return chain.then(function() {
-                _isSyncing = false;
-                _updateSyncBadge();
-
-                if (successCount > 0) {
-                    // Refresh semua data yang sudah online
-                    isFarmersLoaded = false; isLandsLoaded = false;
-                    isPlansLoaded   = false; isRealLoaded  = false;
-                    isPertanamansLoaded = false;
-                    loadPageData(activePage);
-
-                    Swal.fire({
-                        icon: 'success', title: 'Sinkronisasi Selesai',
-                        text: successCount + ' data berhasil dikirim ke server.',
-                        toast: true, position: 'top-end', timer: 4000, showConfirmButton: false
-                    });
-                }
-                if (failCount > 0) {
-                    Swal.fire({
-                        icon: 'warning', title: 'Sinkronisasi Sebagian',
-                        text: failCount + ' data gagal dikirim dan akan dicoba lagi.',
-                        toast: true, position: 'top-end', timer: 5000, showConfirmButton: false
-                    });
-                }
-            });
-        }).catch(function(err) {
-            _isSyncing = false;
-            console.error('[Sync] Queue processing error:', err);
-        });
-    }
-
-    // ============================================================
-    // GAS API — fetch ke doPost
-    //   READ  → network first, fallback IndexedDB cache
-    //   WRITE → network first, jika gagal masuk sync_queue
+    // GAS API — fetch ke doPost, dengan fallback IndexedDB offline
     // ============================================================
     const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwU5c4NrCDne4WgAfQj98ykaLaMiU6JqLct3v0yU4ASBBE_4Z4x7hLZ3MxrywusSNO8AQ/exec';
 
     function gasRun(funcName) {
         var args = Array.prototype.slice.call(arguments, 1);
-
         var networkCall = fetch(GAS_API_URL, {
-            method : 'POST',
+            method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body   : JSON.stringify({ action: funcName, args: args })
-        }).then(function(res) {
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            return res.json();
+            body: JSON.stringify({ action: funcName, args: args })
+        }).then(function(response) {
+            if (!response.ok) throw new Error('Network error: ' + response.status);
+            return response.json();
         }).then(function(result) {
-            // Online & sukses → update cache read
+            // Berhasil online → simpan ke IndexedDB untuk dipakai saat offline
             if (result && result.success && OfflineDB.isCacheable(funcName)) {
-                OfflineDB.cacheSave(funcName, result);
+                OfflineDB.save(funcName, args, result);
             }
             return result;
         });
 
-        // --- READ: fallback ke cache jika offline ---
+        // Jika fungsi ini bisa di-cache (read-only), tambahkan offline fallback
         if (OfflineDB.isCacheable(funcName)) {
-            return networkCall.catch(function() {
-                console.warn('[gasRun] Offline – coba cache untuk:', funcName);
-                return OfflineDB.cacheLoad(funcName).then(function(cached) {
-                    if (cached) { _showOfflineToast(); return cached; }
-                    return { success: false, offline: true,
-                             message: 'Tidak ada koneksi & cache belum tersedia. Buka sekali saat online.' };
-                });
-            });
-        }
-
-        // --- WRITE: masukkan ke antrian jika offline ---
-        if (OfflineDB.isQueueable(funcName)) {
-            return networkCall.catch(function() {
-                console.warn('[gasRun] Offline – antri operasi:', funcName);
-                return OfflineDB.queueAdd(funcName, args).then(function(queueId) {
-                    _updateSyncBadge();
-                    // Daftarkan Background Sync ke SW jika tersedia
-                    if ('serviceWorker' in navigator && 'SyncManager' in window) {
-                        navigator.serviceWorker.ready.then(function(reg) {
-                            reg.sync.register('tm-sync-queue').catch(function(){});
-                        });
+            return networkCall.catch(function(err) {
+                console.warn('[gasRun] Network failed for ' + funcName + ', trying offline cache...');
+                return OfflineDB.load(funcName, args).then(function(cached) {
+                    if (cached) {
+                        // Tampilkan toast bahwa data dari cache
+                        _showOfflineToast();
+                        return cached;
                     }
-                    // Kembalikan success palsu agar UI optimistic update berjalan normal
-                    return { success: true, queued: true, queueId: queueId };
-                }).catch(function() {
-                    return { success: false, offline: true,
-                             message: 'Tidak ada koneksi & gagal menyimpan ke antrian lokal.' };
+                    // Tidak ada cache sama sekali
+                    return { success: false, message: 'Tidak ada koneksi. Cache lokal juga belum tersedia — harap buka halaman ini saat online terlebih dahulu.', offline: true };
                 });
             });
         }
 
-        // Fungsi lain (loginUser, destroySession, dll) — tidak di-queue
+        // Fungsi write (save/delete) — tidak ada fallback offline, lempar error
         return networkCall.catch(function(err) {
-            console.error('[gasRun]', funcName, err);
+            console.error('[gasRun] Error calling ' + funcName + ':', err);
             throw err;
         });
     }
 
-    // ============================================================
-    // ONLINE / OFFLINE EVENTS
-    // ============================================================
+    // Toast kecil "mode offline" agar user tahu data dari cache
     var _offlineToastShown = false;
     function _showOfflineToast() {
         if (_offlineToastShown) return;
         _offlineToastShown = true;
-        Swal.fire({ icon: 'info', title: 'Mode Offline',
-                    text: 'Menampilkan data dari cache lokal.',
-                    toast: true, position: 'top-end', timer: 4000, showConfirmButton: false });
+        Swal.fire({ icon: 'info', title: 'Mode Offline', text: 'Menampilkan data terakhir dari cache lokal.', toast: true, position: 'top-end', timer: 4000, showConfirmButton: false });
         setTimeout(function() { _offlineToastShown = false; }, 10000);
     }
 
-    window.addEventListener('online', function() {
+    // Reset toast flag saat kembali online
+    window.addEventListener('online',  function() {
         _offlineToastShown = false;
-        Swal.fire({ icon: 'success', title: 'Kembali Online',
-                    text: 'Menyinkronkan data yang tersimpan...',
-                    toast: true, position: 'top-end', timer: 2500, showConfirmButton: false });
-        // Langsung proses antrian saat koneksi kembali
-        setTimeout(processSyncQueue, 1000);
+        Swal.fire({ icon: 'success', title: 'Kembali Online', toast: true, position: 'top-end', timer: 2500, showConfirmButton: false });
     });
-
     window.addEventListener('offline', function() {
-        Swal.fire({ icon: 'warning', title: 'Koneksi Terputus',
-                    text: 'Data yang diinput akan disimpan & dikirim otomatis saat online.',
-                    toast: true, position: 'top-end', timer: 4000, showConfirmButton: false });
-    });
-
-    // Coba sync saat halaman pertama dibuka (mungkin ada antrian dari sesi sebelumnya)
-    document.addEventListener('DOMContentLoaded', function() {
-        setTimeout(function() { _updateSyncBadge(); if (navigator.onLine) processSyncQueue(); }, 2000);
+        Swal.fire({ icon: 'warning', title: 'Koneksi Terputus', text: 'Menampilkan data dari cache.', toast: true, position: 'top-end', timer: 3000, showConfirmButton: false });
     });
 
     window.escapeHTML = function(str) {
@@ -1573,9 +1284,6 @@
         isFarmersLoaded = false; isLandsLoaded = false; isPlansLoaded = false; isRealLoaded = false; isUsersLoaded = false; isPhasesLoaded = false;
         activePage = 'dash-utama'; checkLoginState();
     };
-
-    // Expose agar bisa dipanggil dari tombol badge di header
-    window.processSyncQueue = processSyncQueue;
 
     window.checkLoginState = function() {
         const lp = document.getElementById('loginPage'); const ma = document.getElementById('mainApp');
